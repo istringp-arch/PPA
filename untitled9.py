@@ -9,10 +9,8 @@ import io
 # ==========================================
 st.set_page_config(page_title="RE100 Strategy Dashboard", layout="wide", initial_sidebar_state="expanded")
 
-# 다크 모드, Arial 폰트, 피그마 스타일 카드 UI를 완벽하게 강제하는 CSS
 st.markdown("""
     <style>
-    /* 전체 폰트 Arial 및 하얀색 텍스트 강제 */
     @import url('https://fonts.googleapis.com/css2?family=Arial&display=swap');
     
     html, body, [class*="css"], .stMarkdown, p, h1, h2, h3, h4, h5, h6, label, span {
@@ -20,19 +18,16 @@ st.markdown("""
         color: #F8FAFC !important;
     }
     
-    /* 앱 전체 배경색 (다크 모드) */
     .stApp {
         background-color: #121212 !important;
     }
     
-    /* 사이드바 스타일링 */
     [data-testid="stSidebar"] {
         background-color: #1A1C23 !important;
         border-right: 1px solid #2D3748 !important;
     }
     
-    /* 슬라이더 값 텍스트 색상 및 막대 색상 */
-    .stSlider div[data-testid="stThumbValue"], .stSlider label {
+    .stSlider div[data-testid="stThumbValue"], .stSlider label, .stSelectbox label, .stNumberInput label {
         color: #FFFFFF !important;
         font-weight: bold !important;
     }
@@ -40,7 +35,6 @@ st.markdown("""
         background-color: #3DCD58 !important; 
     }
     
-    /* 메인 헤더 (슈나이더 그라데이션) */
     .gradient-header {
         background: linear-gradient(135deg, #009E4D 0%, #3DCD58 100%);
         padding: 2.5rem;
@@ -59,7 +53,6 @@ st.markdown("""
         opacity: 0.9;
     }
     
-    /* 하이라이트 요약 카드 (피그마 디자인 반영) */
     .summary-card {
         background-color: #1E1E1E;
         padding: 2rem;
@@ -83,7 +76,6 @@ st.markdown("""
         margin: 10px 0;
     }
     
-    /* 섹션 제목 스타일 */
     .section-title {
         font-size: 1.5rem !important;
         font-weight: bold !important;
@@ -103,22 +95,42 @@ with st.sidebar:
     st.markdown("### 🏢 Company Logo Here")
     st.markdown("---")
     
-    st.markdown("### ⚙️ Simulation Parameters")
-    st.markdown("<br>", unsafe_allow_html=True)
+    # 1. 누락되었던 Input Setting 섹션 복구
+    st.markdown("### 📝 Contract Settings")
+    voltage_type = st.selectbox("Voltage Type", ["High Voltage A", "High Voltage B", "High Voltage C"])
+    rate_option = st.selectbox("Rate Plan", ["Option I", "Option II", "Option III"])
+    contract_type = st.selectbox("Network Usage Type", [
+        "Transmission Gen - Transmission User",
+        "Transmission Gen - Distribution User",
+        "Distribution Gen - Distribution User (Same Substation)"
+    ])
     
-    kepco_price = st.slider("KEPCO Base Rate (KRW/kWh)", min_value=100, max_value=250, value=150, step=1)
-    ppa_price = st.slider("Direct PPA Rate (KRW/kWh)", min_value=100, max_value=250, value=165, step=1)
-    rec_price = st.slider("REC Market Price (KRW/kWh)", min_value=10, max_value=100, value=50, step=1)
-    gp_price = st.slider("Green Premium (KRW/kWh)", min_value=5, max_value=30, value=10, step=1)
+    col_a, col_b = st.columns(2)
+    with col_a:
+        contract_power = st.number_input("Contract Power (kW)", value=15200, step=100)
+    with col_b:
+        applied_power = st.number_input("Applied Power (kW)", value=8000, step=100)
+
+    st.markdown("---")
+    
+    # 2. 시장 단가 파라미터 섹션
+    st.markdown("### ⚙️ Market Pricing (KRW/kWh)")
+    kepco_price = st.slider("KEPCO Base Rate", min_value=100, max_value=250, value=150, step=1)
+    ppa_price = st.slider("Direct PPA Rate", min_value=100, max_value=250, value=165, step=1)
+    rec_price = st.slider("REC Market Price", min_value=10, max_value=100, value=50, step=1)
+    gp_price = st.slider("Green Premium (GP)", min_value=5, max_value=30, value=10, step=1)
     
     st.markdown("---")
-    kepco_escalation = st.slider("Annual Tariff Increase (%)", min_value=0.0, max_value=10.0, value=2.0, step=0.1)
-    usage_growth = st.slider("Annual Consumption Growth (%)", min_value=0.0, max_value=5.0, value=1.0, step=0.1)
+    
+    # 3. 변동률 파라미터 섹션
+    st.markdown("### 📈 Escalation Rates (%)")
+    kepco_escalation = st.slider("Annual Tariff Increase", min_value=0.0, max_value=10.0, value=2.0, step=0.1)
+    usage_growth = st.slider("Annual Consumption Growth", min_value=0.0, max_value=5.0, value=1.0, step=0.1)
 
 # ==========================================
 # 3. Core Calculations (20-Year Loop)
 # ==========================================
-base_usage = 10000000 
+base_usage = 10000000 # 10,000 MWh 가정 (웹 시뮬레이션용)
 
 total_kepco = 0
 total_ppa = 0
@@ -141,17 +153,18 @@ for i in range(20):
     total_rec += yearly_rec
     total_gp += yearly_gp
     
+    # 그래프를 그리기 위해 억원 단위(KRW Billion)로 미리 환산하여 저장
     yearly_data.append({
         "Year": 2027 + i,
-        "KEPCO_Cost": yearly_kepco,
-        "PPA_Cost": yearly_ppa,
-        "REC_Cost": yearly_rec,
-        "GP_Cost": yearly_gp
+        "KEPCO_Cost_Bn": yearly_kepco / 100000000,
+        "PPA_Cost_Bn": yearly_ppa / 100000000,
+        "REC_Cost_Bn": yearly_rec / 100000000,
+        "GP_Cost_Bn": yearly_gp / 100000000
     })
 
 df_results = pd.DataFrame(yearly_data)
 
-# 억원(KRW Billion) 단위 변환
+# 누적 비용 억원(KRW Billion) 단위
 cum_kepco_bn = total_kepco / 100000000
 cum_ppa_bn = total_ppa / 100000000
 cum_rec_bn = total_rec / 100000000
@@ -179,15 +192,15 @@ st.markdown(f"""
     </div>
 """, unsafe_allow_html=True)
 
-
-# 공통 차트 레이아웃 설정 (다크모드 완벽 호환, Arial 폰트)
+# 공통 차트 레이아웃 설정
 chart_layout = dict(
     template="plotly_dark",
     margin=dict(l=20, r=20, t=50, b=20),
     plot_bgcolor="rgba(0,0,0,0)",
     paper_bgcolor="rgba(0,0,0,0)",
     font=dict(family="Arial", color="#F8FAFC", size=14),
-    showlegend=False,
+    showlegend=True,
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
     yaxis=dict(gridcolor="#333333", zerolinecolor="#333333")
 )
 
@@ -205,10 +218,12 @@ with col1:
             textposition='auto',
             textfont=dict(size=15, color="white", family="Arial"),
             marker_color=['#64748B', '#3DCD58'],
-            width=0.4
+            width=0.4,
+            showlegend=False
         )
     ])
     fig1.update_layout(**chart_layout, title="1. Power Procurement (Raw Energy Cost)")
+    fig1.update_layout(showlegend=False)
     st.plotly_chart(fig1, use_container_width=True)
 
 with col2:
@@ -220,51 +235,90 @@ with col2:
             textposition='auto',
             textfont=dict(size=15, color="white", family="Arial"),
             marker_color=['#3DCD58', '#0F766E', '#059669'],
-            width=0.5
+            width=0.5,
+            showlegend=False
         )
     ])
     fig2.update_layout(**chart_layout, title="2. RE100 Procurement (Energy + REC)")
+    fig2.update_layout(showlegend=False)
     st.plotly_chart(fig2, use_container_width=True)
 
-
 # --- SECTION 2: 20-Year Long-Term Analysis ---
-st.markdown('<div class="section-title">📈 Section 2: 20-Year Long-Term Cumulative Analysis</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">📈 Section 2: 20-Year Long-Term Analysis</div>', unsafe_allow_html=True)
 
-fig3 = go.Figure(data=[
-    go.Bar(
-        x=['KEPCO 100%', 'Direct PPA', 'KEPCO + REC', 'KEPCO + GP'],
-        y=[cum_kepco_bn, cum_ppa_bn, cum_rec_bn, cum_gp_bn],
-        text=[f"{val:,.1f} Bn" for val in [cum_kepco_bn, cum_ppa_bn, cum_rec_bn, cum_gp_bn]],
-        textposition='auto',
-        textfont=dict(size=16, color="white", family="Arial"),
-        marker_color=['#64748B', '#3DCD58', '#0F766E', '#059669'],
-        width=0.4
+tab1, tab2 = st.tabs(["Line Chart (Annual Trend)", "Bar Chart (Cumulative Total)"])
+
+# 누락되었던 20년 추이 선 그래프 복구
+with tab1:
+    fig_line = go.Figure()
+    fig_line.add_trace(go.Scatter(x=df_results['Year'], y=df_results['KEPCO_Cost_Bn'], mode='lines+markers', name='KEPCO 100%', line=dict(color='#64748B', width=3)))
+    fig_line.add_trace(go.Scatter(x=df_results['Year'], y=df_results['PPA_Cost_Bn'], mode='lines+markers', name='Direct PPA', line=dict(color='#3DCD58', width=4)))
+    fig_line.add_trace(go.Scatter(x=df_results['Year'], y=df_results['REC_Cost_Bn'], mode='lines+markers', name='KEPCO + REC', line=dict(color='#0F766E', width=2, dash='dash')))
+    fig_line.add_trace(go.Scatter(x=df_results['Year'], y=df_results['GP_Cost_Bn'], mode='lines+markers', name='KEPCO + GP', line=dict(color='#059669', width=2, dash='dot')))
+    
+    fig_line.update_layout(
+        **chart_layout,
+        title="Annual Cost Trend Over 20 Years",
+        xaxis_title="Year",
+        yaxis_title="Annual Cost (KRW Billion)",
+        height=550,
+        xaxis=dict(tickmode="linear", tick0=2027, dtick=2)
     )
-])
-fig3.update_layout(
-    **chart_layout,
-    title="20-Year Total Cumulative Cost Comparison",
-    yaxis_title="Total Cost (KRW Billion)",
-    height=550
-)
-st.plotly_chart(fig3, use_container_width=True)
+    st.plotly_chart(fig_line, use_container_width=True)
+
+# 누적 막대그래프
+with tab2:
+    fig_bar = go.Figure(data=[
+        go.Bar(
+            x=['KEPCO 100%', 'Direct PPA', 'KEPCO + REC', 'KEPCO + GP'],
+            y=[cum_kepco_bn, cum_ppa_bn, cum_rec_bn, cum_gp_bn],
+            text=[f"{val:,.1f} Bn" for val in [cum_kepco_bn, cum_ppa_bn, cum_rec_bn, cum_gp_bn]],
+            textposition='auto',
+            textfont=dict(size=16, color="white", family="Arial"),
+            marker_color=['#64748B', '#3DCD58', '#0F766E', '#059669'],
+            width=0.4,
+            showlegend=False
+        )
+    ])
+    fig_bar.update_layout(
+        **chart_layout,
+        title="20-Year Total Cumulative Cost Comparison",
+        yaxis_title="Total Cost (KRW Billion)",
+        height=550
+    )
+    fig_bar.update_layout(showlegend=False)
+    st.plotly_chart(fig_bar, use_container_width=True)
 
 # ==========================================
-# 5. Export / Download Section
+# 5. Export / Download Section (오류 완벽 수정)
 # ==========================================
 st.markdown("---")
 st.markdown("### 💾 Export Data")
 
-# 엑셀 다운로드 로직
-buffer = io.BytesIO()
-with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-    df_results.to_excel(writer, sheet_name='20-Year_Simulation', index=False)
+# 에러 없는 안정적인 Buffer 방식 적용
+excel_buffer = io.BytesIO()
+
+try:
+    # openpyxl 엔진을 사용하여 호환성 오류 방지
+    with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+        df_results.to_excel(writer, index=False, sheet_name='20-Year_Simulation')
+    excel_data = excel_buffer.getvalue()
     
-st.download_button(
-    label="⬇️ Download Excel Data",
-    data=buffer.getvalue(),
-    file_name="RE100_Simulation_Results.xlsx",
-    mime="application/vnd.ms-excel"
-)
+    st.download_button(
+        label="⬇️ Download Excel File (.xlsx)",
+        data=excel_data,
+        file_name="RE100_Simulation_Results.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+except Exception as e:
+    # 엑셀 엔진이 없는 환경을 대비한 CSV 다운로드 폴백(Fallback) 제공
+    st.warning("Excel Engine(openpyxl) is not installed in this environment. Providing CSV download instead.")
+    csv_data = df_results.to_csv(index=False).encode('utf-8-sig')
+    st.download_button(
+        label="⬇️ Download CSV File (.csv)",
+        data=csv_data,
+        file_name="RE100_Simulation_Results.csv",
+        mime="text/csv"
+    )
 
 st.info("💡 **Tip for PDF Export:** To generate a clean PDF report of this dashboard, press `Ctrl + P` (or `Cmd + P` on Mac) and select 'Save as PDF' in your browser's print dialog.")
