@@ -1,173 +1,158 @@
-# ... existing code ...
-# ==========================================
-# 1. Page Configuration & Custom CSS
-# ==========================================
-st.set_page_config(page_title="RE100 Strategy Dashboard", layout="wide", initial_sidebar_state="expanded")
+import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.graph_objects as go
+from datetime import datetime
 
-# 슈나이더 감성의 커스텀 CSS (다크모드 적용, Arial 폰트 강제, 텍스트 화이트)
-st.markdown("""
-    <style>
-    /* 폰트 Arial 강제 적용 */
-    * {
-        font-family: 'Arial', sans-serif !important;
-    }
+st.set_page_config(layout="wide", page_title="PPA 경제성 분석 대시보드")
+
+# 1. 가상 데이터 생성기 함수
+@st.cache_data
+def generate_virtual_data(annual_usage, solar_capacity, target_year=2027):
+    # 1년 8760시간 데이터프레임 생성
+    date_rng = pd.date_range(start=f"{target_year}-01-01", end=f"{target_year}-12-31 23:00", freq="h")
+    df = pd.DataFrame({"Datetime": date_rng})
+    df["Year"] = df["Datetime"].dt.year
+    df["Month"] = df["Datetime"].dt.month
+    df["Day"] = df["Datetime"].dt.day
+    df["Hour"] = df["Datetime"].dt.hour
+
+    # 기업 전력사용량 가상 패턴: 업무시간(9시~18시)에 집중, 나머지 시간은 절반 수준
+    base_hourly = annual_usage / 8760
+    df["기업전력사용량(kWh)"] = np.where(
+        (df["Hour"] >= 9) & (df["Hour"] <= 18), 
+        base_hourly * 1.5, 
+        base_hourly * 0.5
+    )
+
+    # 태양광 발전량 가상 패턴: 일조시간(8시~18시)에 사인 곡선 형태로 발전, 최대 효율 15% 가정
+    efficiency = 0.15
+    df["발전량(kWh)"] = np.where(
+        (df["Hour"] >= 8) & (df["Hour"] <= 18),
+        solar_capacity * efficiency * np.sin(np.pi * (df["Hour"] - 8) / 10),
+        0
+    )
     
-    /* 전체 배경색 - 다크 테마 */
-    .stApp {
-        background-color: #121212 !important;
-    }
+    # 임시 시간대별 한전 단가 생성 (실제 tariff_df 대체용)
+    df["한전_시간대별_단가"] = np.where(
+        (df["Hour"] >= 9) & (df["Hour"] <= 18), 180.0, 120.0
+    )
     
-    /* 사이드바 스타일링 - 어두운 배경 */
-    [data-testid="stSidebar"] {
-        background-color: #1E1E1E !important;
-        box-shadow: 2px 0 10px rgba(0,0,0,0.5);
-        border-right: 1px solid #333;
-    }
+    return df
+
+# 2. 경제성 분석 메인 로직 함수
+def run_simulation(df, ppa_price, rec_price, smp_price, discount_rate=0.05):
+    contract_years = 20
+    kepco_escalation = 0.02
+    usage_growth = 0.01
+    degradation_rate = -0.005
+    smp_escalation = 0.015
+    ppa_escalation = 0.0
     
-    /* 모든 기본 텍스트 하얀색으로 강제 변경 (안 보이는 글씨 밝히기) */
-    h1, h2, h3, h4, h5, h6, p, label, .stMarkdown, .stText, span {
-        color: #FFFFFF !important;
-    }
+    yearly_summary_data = []
     
-    /* 메인 헤더 그라데이션 카드 */
-    .gradient-header {
-        background: linear-gradient(135deg, #009E4D 0%, #3DCD58 100%);
-        padding: 2rem;
-        border-radius: 15px;
-        color: white !important;
-        box-shadow: 0 10px 20px rgba(0, 0, 0, 0.4);
-        margin-bottom: 2rem;
-    }
-    .gradient-header h1 {
-        margin: 0;
-        font-size: 2rem;
-        font-weight: 800;
-        color: white !important;
-    }
-    .gradient-header p {
-        margin: 0;
-        opacity: 0.9;
-        font-size: 1.1rem;
-        color: white !important;
-    }
-    
-    /* 하이라이트 요약 카드 */
-    .summary-card {
-        background-color: #1E1E1E;
-        padding: 1.5rem;
-        border-radius: 12px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.4);
-        border: 1px solid #333;
-        text-align: center;
-        margin-bottom: 2rem;
-    }
-    .summary-value {
-        font-size: 2.5rem;
-        font-weight: 800;
-        color: #3DCD58 !important; /* 포인트 컬러 유지 */
-    }
-    </style>
-""", unsafe_allow_html=True)
-
-# ==========================================
-# 2. Sidebar Parameters (왼쪽 패널)
-# ... existing code ...
-# ==========================================
-# 4. Main Dashboard UI
-# ==========================================
-# 메인 헤더
-st.markdown("""
-    <div class="gradient-header">
-        <h1>RE100 Economic Feasibility Dashboard</h1>
-        <p>Long-term simulation & cost-benefit analysis for corporate renewable energy procurement</p>
-    </div>
-""", unsafe_allow_html=True)
-
-# 하이라이트 요약 (인라인 스타일 글꼴색 어둡지 않게 수정)
-st.markdown(f"""
-    <div class="summary-card">
-        <h3 style="color: #A0AEC0; font-size: 1.1rem;">Expected 20-Year Cumulative Savings (vs KEPCO 100%)</h3>
-        <div class="summary-value">{abs(savings_bn):,.1f} <span style="font-size: 1.5rem; color: #FFFFFF;">KRW Billion</span></div>
-        <p style="color: #CBD5E1; font-size: 0.9rem;">{ "Cost Reduction" if savings_bn > 0 else "Additional Cost" } via Direct PPA Adoption</p>
-    </div>
-""", unsafe_allow_html=True)
-
-
-# --- SECTION 1: Alternative Summary ---
-st.markdown("### 📊 Section 1: Summary of Alternatives (Current Year)")
-col1, col2 = st.columns(2)
-
-# 공통 차트 레이아웃 설정 (다크모드 및 Arial 폰트 적용)
-chart_layout = dict(
-    template="plotly_dark",
-    margin=dict(l=0, r=0, t=40, b=0),
-    plot_bgcolor="rgba(0,0,0,0)",
-    paper_bgcolor="rgba(0,0,0,0)",
-    showlegend=False,
-    font=dict(family="Arial", color="white")
-)
-
-with col1:
-    st.markdown("**1. Power Procurement (Raw Energy Cost)**")
-    fig1 = go.Figure(data=[
-        go.Bar(
-            x=['KEPCO Grid', 'Direct PPA'],
-            y=[kepco_price, ppa_price],
-            text=[f"{kepco_price} KRW/kWh", f"{ppa_price} KRW/kWh"],
-            textposition='auto',
-            textfont=dict(family="Arial", size=14),
-            marker_color=['#94A3B8', '#3DCD58']
+    # 20년 시뮬레이션
+    for year_idx in range(contract_years):
+        target_year = 2027 + year_idx
+        t = year_idx
+        
+        temp_df = df.copy()
+        
+        # 열화율 및 증가율 적용
+        temp_df["발전량(kWh)"] = temp_df["발전량(kWh)"] * ((1 + degradation_rate) ** t)
+        temp_df["기업전력사용량(kWh)"] = temp_df["기업전력사용량(kWh)"] * ((1 + usage_growth) ** t)
+        
+        # 단가 인상 적용
+        temp_df["한전_시간대별_단가"] = temp_df["한전_시간대별_단가"] * ((1 + kepco_escalation) ** t)
+        current_smp = smp_price * ((1 + smp_escalation) ** t)
+        current_ppa = ppa_price * ((1 + ppa_escalation) ** t)
+        current_rec = rec_price * ((1 + 0.015) ** t)
+        
+        # 전력 분배 로직
+        is_shortage = temp_df["발전량(kWh)"] <= temp_df["기업전력사용량(kWh)"]
+        loss_rate = 0.0352
+        
+        temp_df["PPA_공급량(kWh)"] = np.where(
+            is_shortage,
+            temp_df["발전량(kWh)"],
+            temp_df["기업전력사용량(kWh)"] / (1 - loss_rate)
         )
-    ])
-    fig1.update_layout(**chart_layout, yaxis_title="KRW / kWh")
+        
+        annual_usage = temp_df["기업전력사용량(kWh)"].sum()
+        
+        # 가상의 연간 총비용 계산 
+        total_dppa_cost = annual_usage * current_ppa * 0.95 
+        baseline_final_cost = annual_usage * temp_df["한전_시간대별_단가"].mean()
+        rec_final_cost = baseline_final_cost + (annual_usage * current_rec)
+        
+        # 현재가치 할인
+        discount_factor = (1 + discount_rate) ** t
+        
+        yearly_summary_data.append({
+            "연도": target_year,
+            "DPPA 총비용(명목, 원)": total_dppa_cost,
+            "한전100% 총비용(명목, 원)": baseline_final_cost,
+            "REC 총비용(명목, 원)": rec_final_cost,
+            "DPPA 현재가치(PV)": total_dppa_cost / discount_factor,
+            "한전100% 현재가치(PV)": baseline_final_cost / discount_factor,
+            "REC 현재가치(PV)": rec_final_cost / discount_factor,
+            "DPPA 연평균단가(원/kWh)": total_dppa_cost / annual_usage,
+            "한전100% 연평균단가(원/kWh)": baseline_final_cost / annual_usage,
+            "REC 연평균단가(원/kWh)": rec_final_cost / annual_usage,
+        })
+        
+    return pd.DataFrame(yearly_summary_data)
+
+# 3. 화면 UI 구성
+st.title("기업용 PPA 도입 경제성 분석 대시보드")
+
+with st.sidebar:
+    st.header("사용자 입력 위젯")
+    annual_usage = st.number_input("연간 총 전력사용량 (kWh):", value=5000000, step=100000)
+    solar_capacity = st.number_input("태양광 설비용량 (kW):", value=1000, step=100)
+    
+    st.divider()
+    ppa_price = st.slider("PPA 계약 단가 (원/kWh):", 100, 250, 180)
+    rec_price = st.slider("REC 예상 단가 (원/kWh):", 30, 150, 75)
+    smp_price = st.slider("SMP 기준 단가 (원/kWh):", 50, 200, 140)
+
+# 가상 데이터 및 시뮬레이션 실행
+base_df = generate_virtual_data(annual_usage, solar_capacity)
+result_df = run_simulation(base_df, ppa_price, rec_price, smp_price)
+
+# 상단 요약
+st.subheader("20년 누적 현금흐름 요약 (현재가치 기준)")
+col1, col2, col3 = st.columns(3)
+npc_kepco = result_df["한전100% 현재가치(PV)"].sum() / 1e8
+npc_ppa = result_df["DPPA 현재가치(PV)"].sum() / 1e8
+npc_rec = result_df["REC 현재가치(PV)"].sum() / 1e8
+
+col1.metric("한전 100% 유지 시", f"{npc_kepco:,.1f} 억원")
+col2.metric("직접 PPA 도입 시", f"{npc_ppa:,.1f} 억원", f"{npc_kepco - npc_ppa:,.1f} 억원 절감")
+col3.metric("한전 + REC 구매 시", f"{npc_rec:,.1f} 억원", f"{npc_kepco - npc_rec:,.1f} 억원 증가", delta_color="inverse")
+
+st.divider()
+
+# 그래프 시각화
+col_g1, col_g2 = st.columns(2)
+
+with col_g1:
+    st.markdown("#### 연간 가중평균 단가 추이")
+    fig1 = go.Figure()
+    fig1.add_trace(go.Scatter(x=result_df["연도"], y=result_df["한전100% 연평균단가(원/kWh)"], name="한전 100%", line=dict(dash="dash", color="firebrick")))
+    fig1.add_trace(go.Scatter(x=result_df["연도"], y=result_df["DPPA 연평균단가(원/kWh)"], name="직접 PPA", line=dict(width=3, color="royalblue")))
+    fig1.add_trace(go.Scatter(x=result_df["연도"], y=result_df["REC 연평균단가(원/kWh)"], name="REC 구매", line=dict(dash="dot", color="forestgreen")))
     st.plotly_chart(fig1, use_container_width=True)
 
-with col2:
-    st.markdown("**2. RE100 Procurement (Energy + REC)**")
-    fig2 = go.Figure(data=[
-        go.Bar(
-            x=['Direct PPA', 'KEPCO + REC', 'KEPCO + GP'],
-            y=[ppa_price, kepco_price + rec_price, kepco_price + gp_price],
-            text=[f"{ppa_price} KRW/kWh", f"{kepco_price + rec_price} KRW/kWh", f"{kepco_price + gp_price} KRW/kWh"],
-            textposition='auto',
-            textfont=dict(family="Arial", size=14),
-            marker_color=['#3DCD58', '#0F766E', '#059669']
-        )
-    ])
-    fig2.update_layout(**chart_layout, yaxis_title="KRW / kWh")
+with col_g2:
+    st.markdown("#### 연간 총비용 추이 (현재가치)")
+    fig2 = go.Figure()
+    fig2.add_trace(go.Scatter(x=result_df["연도"], y=result_df["한전100% 현재가치(PV)"] / 1e8, name="한전 100%", line=dict(dash="dash", color="firebrick")))
+    fig2.add_trace(go.Scatter(x=result_df["연도"], y=result_df["DPPA 현재가치(PV)"] / 1e8, name="직접 PPA", line=dict(width=3, color="royalblue")))
+    fig2.add_trace(go.Scatter(x=result_df["연도"], y=result_df["REC 현재가치(PV)"] / 1e8, name="REC 구매", line=dict(dash="dot", color="forestgreen")))
     st.plotly_chart(fig2, use_container_width=True)
 
-st.markdown("---")
-
-# --- SECTION 2: 20-Year Long-Term Analysis ---
-st.markdown("### 📈 Section 2: 20-Year Long-Term Cumulative Analysis")
-
-fig3 = go.Figure(data=[
-    go.Bar(
-        x=['KEPCO 100%', 'Direct PPA', 'KEPCO + REC', 'KEPCO + GP'],
-        y=[cum_kepco_bn, cum_ppa_bn, cum_rec_bn, cum_gp_bn],
-        text=[f"{val:,.1f} Bn" for val in [cum_kepco_bn, cum_ppa_bn, cum_rec_bn, cum_gp_bn]],
-        textposition='auto',
-        textfont=dict(family="Arial", size=14),
-        marker_color=['#94A3B8', '#3DCD58', '#0F766E', '#059669'],
-        width=0.5
-    )
-])
-fig3.update_layout(
-    **chart_layout,
-    yaxis_title="Total Cost (KRW Billion)",
-    height=500
-)
-st.plotly_chart(fig3, use_container_width=True)
-
-# ==========================================
-# 5. Export / Download Section
-# ... existing code ...
-```eof
-
-### 💡 주요 변경 사항
-1. **전체 UI 다크 모드 (`#121212`)**: 바탕색을 짙은 회색/검정에 가까운 모던한 다크 모드로 변경했습니다.
-2. **사이드바 음영 (`#1E1E1E`)**: 좌측 파라미터가 있는 사이드바도 어둡게 만들어 전체적인 일체감을 주었습니다.
-3. **가시성 개선 (White Text)**: `color: #FFFFFF !important;` 속성을 모든 글씨 영역에 적용하여 배경에 묻히지 않고 눈에 확 띄도록 조정했습니다. (인라인 스타일 색상도 밝은 톤으로 올렸습니다.)
-4. **폰트 변경 (Arial)**: 화면 전체 및 Plotly 차트 내부의 폰트까지 모두 `Arial`로 통일했습니다.
-5. **차트 다크 테마 반영**: Plotly 차트 레이아웃에 `template="plotly_dark"`를 추가하여 그래프의 축이나 배경선도 어두운 테마에 알맞게 변경되었습니다.
+st.divider()
+st.markdown("#### 엑셀 데이터 다운로드")
+csv = result_df.to_csv(index=False).encode("utf-8-sig")
+st.download_button(label="20년 연간 요약 데이터 다운로드", data=csv, file_name="20yr_summary.csv", mime="text/csv")
